@@ -52,7 +52,7 @@ Si ninguna señal aplica y los siete huecos ya están cerrados por la propia con
 
 **Mientras haya un hueco abierto: cero escritura.** No `Edit`, no `Write`, no comandos que muten estado.
 
-Permitido: leer, buscar, `glob`, herramientas de `codebase-memory`, comandos read-only, y anexar el Acuerdo cerrado al `CLAUDE.md` del repo (ver Cierre) — única escritura permitida.
+Permitido: leer, buscar, `glob`, comandos read-only, y actualizar el `CLAUDE.md` del repo con lo decidido en el Acuerdo (ver Cierre) — única escritura permitida.
 
 Dile al usuario en una línea qué está bloqueado y qué falta exactamente para desbloquearlo. No lo dejes implícito.
 
@@ -62,7 +62,7 @@ Orden obligatorio: exploración read-only del repo → preguntas en tandas de �
 
 Toda pregunta que el repo puede responder, **se responde leyendo el repo** — no se pregunta.
 
-Antes de preguntar nada: llama `index_status`. Si el proyecto está indexado, usa `search_graph` / `trace_path` / `get_code_snippet`. Si no lo está, o corres `index_repository`, o caes a `Read` / `glob` explícito — pero no te salteás la lectura.
+Antes de preguntar nada: lee el repo con las herramientas de búsqueda y lectura disponibles (`Read`, `glob`, grep) — no te salteás la lectura.
 
 Al usuario solo le preguntas lo que el código no sabe: intención, prioridad, trade-off, alcance, qué es "correcto" para el negocio.
 
@@ -112,11 +112,19 @@ Los siete huecos, uno por línea:
 - Riesgo aceptado:
 ```
 
-Va en el chat **y** anexado al `CLAUDE.md` del repo, bajo una sección `## Acuerdos` con fecha y título de una línea (más reciente arriba), para que sobreviva a la compactación y a la sesión — un "continúa" en sesión nueva retoma desde ahí sin re-interrogar. Si el repo no tiene `CLAUDE.md`, pide autorización para crearlo antes de anexar. No creas otros archivos en el repo.
+Va en el chat. Después, **integra las decisiones al `CLAUDE.md` del repo actualizando lo que corresponda**:
+
+- Término mapeado que el archivo no declara → agrega la definición donde el archivo documenta vocabulario o convenciones.
+- Decisión que fija una regla durable ("siempre X", "nunca Y") → agrégala a la sección de reglas existente.
+- Supuesto confirmado que contradice algo que el archivo afirma → corrige esa línea en el lugar; no dupliques ni acumules versiones.
+- Lo efímero de la tarea (criterio de aceptación, alcance puntual, riesgo de esta implementación) **no se guarda** — vive en el chat.
+- Si el Acuerdo no produce nada durable, no toques el archivo. Un Acuerdo `incompleto — reformular` nunca se integra: no hay decisiones.
+
+Si el repo no tiene `CLAUDE.md`, pide autorización para crearlo antes de escribir. No creas otros archivos en el repo.
 
 Si una tanda termina sin cerrar ningún hueco nuevo (ver Protocolo), el problema está difuso: emites el bloque con lo que tengas y lo encabezas `## Acuerdo: incompleto — reformular`, listando qué líneas quedaron vacías y por qué. Eso es un cierre válido: pides al usuario que reformule el problema desde cero, no sigues preguntando ni entras en loop buscando completar los siete puntos.
 
-Inmediatamente después del Acuerdo, pregunta explícito: ¿este acuerdo contradice o deja obsoleto algo que `README.md` o `CLAUDE.md` declaran? Si sí, pide autorización al usuario para actualizarlos — no los edites por iniciativa propia.
+Las contradicciones con `CLAUDE.md` se resuelven en esa misma integración. Si el acuerdo contradice algo que `README.md` declara, pide autorización al usuario para actualizarlo — no lo edites por iniciativa propia.
 
 ## Salida y handoff
 
@@ -130,7 +138,7 @@ Termina siempre con esta línea, literal:
 
 **Pedido**: "hay que arreglar el timeout de las transcripciones".
 
-Lectura del repo primero — `search_graph(name_pattern="*transcri*")` da dos timeouts distintos: uno en el cliente HTTP (`client.py:44`, 30s) y uno en el worker de cola (`worker.py:112`, 300s). Eso convierte un pedido difuso en una pregunta con espacio cerrado.
+Lectura del repo primero — buscar `timeout` en el código da dos timeouts distintos: uno en el cliente HTTP (`client.py:44`, 30s) y uno en el worker de cola (`worker.py:112`, 300s). Eso convierte un pedido difuso en una pregunta con espacio cerrado.
 
 **Tanda 1 — huecos abiertos: 4/7** (`AskUserQuestion`, 2 preguntas):
 - ¿Cuál timeout está fallando? → `client.py:44` (30s, corta audios largos) *(Recomendado — coincide con el síntoma)* / `worker.py:112` (300s) / los dos.
@@ -174,6 +182,7 @@ Y pides reformular: "Necesito un caso concreto: una acción específica, cuánto
 ## Antipatrones
 
 - Preguntar por preguntar para parecer riguroso.
+- Acumular historial en `CLAUDE.md` en vez de actualizar las líneas que corresponden.
 - Convertirlo en un cuestionario de 30 puntos.
 - Preguntar lo que se contesta leyendo el repo.
 - Forzar `AskUserQuestion` en preguntas abiertas, inventando opciones.

@@ -52,7 +52,7 @@ If no signal applies and the seven gaps are already closed by the conversation i
 
 **While a gap is open: zero writes.** No `Edit`, no `Write`, no state-mutating commands.
 
-Allowed: reading, searching, `glob`, `codebase-memory` tools, read-only commands, and appending the closed Agreement to the repo's `CLAUDE.md` (see Closure) — the only permitted write.
+Allowed: reading, searching, `glob`, read-only commands, and updating the repo's `CLAUDE.md` with what the Agreement decided (see Closure) — the only permitted write.
 
 Tell the user in one line what is blocked and exactly what is missing to unblock it. Do not leave it implicit.
 
@@ -62,7 +62,7 @@ Mandatory order: read-only exploration of the repo → questions in rounds of �
 
 Every question the repo can answer **gets answered by reading the repo** — not by asking.
 
-Before asking anything: call `index_status`. If the project is indexed, use `search_graph` / `trace_path` / `get_code_snippet`. If it is not, either run `index_repository`, or fall back to explicit `Read` / `glob` — but do not skip the reading.
+Before asking anything: read the repo with the available search and read tools (`Read`, `glob`, grep) — do not skip the reading.
 
 Ask the user only what the code does not know: intent, priority, trade-off, scope, what "correct" means for the business.
 
@@ -112,11 +112,19 @@ The seven gaps, one per line:
 - Accepted risk:
 ```
 
-It goes in the chat **and** appended to the repo's `CLAUDE.md`, under an `## Agreements` section with date and a one-line title (most recent first), so it survives compaction and the session — a "continue" in a new session picks up from there without re-interrogating. If the repo has no `CLAUDE.md`, ask for authorization to create it before appending. Do not create other files in the repo.
+It goes in the chat. Then, **integrate the decisions into the repo's `CLAUDE.md` by updating whatever applies**:
+
+- Mapped term the file does not declare → add the definition where the file documents vocabulary or conventions.
+- Decision that sets a durable rule ("always X", "never Y") → add it to the existing rules section.
+- Confirmed assumption that contradicts something the file states → fix that line in place; do not duplicate or accumulate versions.
+- The task's ephemera (acceptance criteria, one-off scope, this implementation's risk) **is not stored** — it lives in the chat.
+- If the Agreement produces nothing durable, do not touch the file. An `incomplete — reformulate` Agreement is never integrated: there are no decisions.
+
+If the repo has no `CLAUDE.md`, ask for authorization to create it before writing. Do not create other files in the repo.
 
 If a round ends without closing any new gap (see Protocol), the problem is fuzzy: emit the block with what you have and head it `## Agreement: incomplete — reformulate`, listing which lines stayed empty and why. That is a valid closure: you ask the user to reformulate the problem from scratch, you do not keep asking nor loop trying to fill the seven points.
 
-Immediately after the Agreement, ask explicitly: does this agreement contradict or obsolete anything `README.md` or `CLAUDE.md` declare? If yes, ask the user for authorization to update them — do not edit them on your own initiative.
+Contradictions with `CLAUDE.md` are resolved in that same integration. If the agreement contradicts something `README.md` declares, ask the user for authorization to update it — do not edit it on your own initiative.
 
 ## Exit and handoff
 
@@ -130,7 +138,7 @@ Always end with this line, literally:
 
 **Request**: "we need to fix the transcriptions timeout".
 
-Repo reading first — `search_graph(name_pattern="*transcri*")` yields two distinct timeouts: one in the HTTP client (`client.py:44`, 30s) and one in the queue worker (`worker.py:112`, 300s). That turns a fuzzy request into a question with a closed answer space.
+Repo reading first — searching the code for `timeout` yields two distinct timeouts: one in the HTTP client (`client.py:44`, 30s) and one in the queue worker (`worker.py:112`, 300s). That turns a fuzzy request into a question with a closed answer space.
 
 **Round 1 — open gaps: 4/7** (`AskUserQuestion`, 2 questions):
 - Which timeout is failing? → `client.py:44` (30s, cuts long audios) *(Recommended — matches the symptom)* / `worker.py:112` (300s) / both.
@@ -174,6 +182,7 @@ And you ask to reformulate: "I need a concrete case: a specific action, how long
 ## Antipatterns
 
 - Asking for the sake of asking to look rigorous.
+- Accumulating history in `CLAUDE.md` instead of updating the lines that apply.
 - Turning it into a 30-point questionnaire.
 - Asking what can be answered by reading the repo.
 - Forcing `AskUserQuestion` on open questions, inventing options.

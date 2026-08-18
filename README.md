@@ -14,6 +14,8 @@ skills/
 │   │   └── SKILL.md
 │   └── pedantry/
 │       └── SKILL.md
+├── configs/
+│   └── CLAUDE.md              # personal global CLAUDE.md (installable as `claude-md`)
 ├── .claude-plugin/
 │   ├── marketplace.json       # this repo IS a Claude Code marketplace
 │   └── plugin.json
@@ -38,7 +40,16 @@ bash scripts/install.sh pedantry --target ~/.codex/skills   # arbitrary target
 bash scripts/install.sh --all --copy         # copy, for environments without symlinks
 ```
 
-The picker accepts numbers, names, or `a` for all. In non-interactive environments (CI, containers) pass skill names or `--all` explicitly. With symlinks, editing in the repo updates every agent instantly. The script is idempotent; if the target already had a real directory, it backs it up as `*.bak.<timestamp>`. Unknown skill names fail before installing anything.
+Besides skills, the repo ships **configs** — files with fixed destinations, installable by name:
+
+```bash
+bash scripts/install.sh claude-md            # symlink ~/.claude/CLAUDE.md → configs/CLAUDE.md
+CLAUDE_DIR=/elsewhere bash scripts/install.sh claude-md   # override the ~/.claude location
+```
+
+`--all` deliberately covers skills only: installing a personal `CLAUDE.md` on someone else's machine is invasive, so configs always require explicit selection.
+
+The picker accepts numbers, names, or `a` for all skills. In non-interactive environments (CI, containers) pass item names or `--all` explicitly. With symlinks, editing in the repo updates every agent instantly. The script is idempotent; if the target already had a real directory, it backs it up as `*.bak.<timestamp>`. Unknown skill names fail before installing anything.
 
 To uninstall, `scripts/uninstall.sh` mirrors the same interface:
 

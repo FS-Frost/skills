@@ -52,7 +52,7 @@ If no signal applies and the seven gaps are already closed by the conversation i
 
 **While a gap is open: zero writes.** No `Edit`, no `Write`, no state-mutating commands.
 
-Allowed: reading, searching, `glob`, read-only commands, and updating the repo's `CLAUDE.md` with what the Agreement decided (see Closure) — the only permitted write.
+Allowed: reading, searching, read-only commands, and updating the repo's `CLAUDE.md` with what the Agreement decided (see Closure) — the only permitted write.
 
 Tell the user in one line what is blocked and exactly what is missing to unblock it. Do not leave it implicit.
 
@@ -62,7 +62,7 @@ Mandatory order: read-only exploration of the repo → questions in rounds of �
 
 Every question the repo can answer **gets answered by reading the repo** — not by asking.
 
-Before asking anything: read the repo with the available search and read tools (`Read`, `glob`, grep) — do not skip the reading.
+Before asking anything: read the repo with whatever search and read tools the agent has available — file reading, glob, grep or similar are examples, not a closed list; use the equivalent in your environment. What is non-negotiable is the reading: do not skip it.
 
 Ask the user only what the code does not know: intent, priority, trade-off, scope, what "correct" means for the business.
 

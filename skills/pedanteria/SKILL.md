@@ -52,7 +52,7 @@ Si ninguna señal aplica y los siete huecos ya están cerrados por la propia con
 
 **Mientras haya un hueco abierto: cero escritura.** No `Edit`, no `Write`, no comandos que muten estado.
 
-Permitido: leer, buscar, `glob`, comandos read-only, y actualizar el `CLAUDE.md` del repo con lo decidido en el Acuerdo (ver Cierre) — única escritura permitida.
+Permitido: leer, buscar, comandos read-only, y actualizar el `CLAUDE.md` del repo con lo decidido en el Acuerdo (ver Cierre) — única escritura permitida.
 
 Dile al usuario en una línea qué está bloqueado y qué falta exactamente para desbloquearlo. No lo dejes implícito.
 
@@ -62,7 +62,7 @@ Orden obligatorio: exploración read-only del repo → preguntas en tandas de �
 
 Toda pregunta que el repo puede responder, **se responde leyendo el repo** — no se pregunta.
 
-Antes de preguntar nada: lee el repo con las herramientas de búsqueda y lectura disponibles (`Read`, `glob`, grep) — no te salteás la lectura.
+Antes de preguntar nada: lee el repo con las herramientas de búsqueda y lectura que el agente tenga disponibles — lectura de archivos, glob, grep o similares son ejemplos, no una lista cerrada; usa lo equivalente en tu entorno. Lo que no se negocia es la lectura: no te la salteás.
 
 Al usuario solo le preguntas lo que el código no sabe: intención, prioridad, trade-off, alcance, qué es "correcto" para el negocio.
 

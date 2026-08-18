@@ -1,0 +1,8 @@
+{
+  "name": "skills",
+  "version": "0.1.0",
+  "description": "Personal collection of agent skills",
+  "author": { "name": "FS-Frost" },
+  "repository": "https://github.com/FS-Frost/skills",
+  "license": "MIT"
+}

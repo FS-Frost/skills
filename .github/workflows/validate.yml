@@ -7,15 +7,21 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: "20"
       - name: Validate skills and index
-        run: python3 scripts/validate.py
-      - name: Check shell scripts syntax
+        run: node scripts/validate.js
+      - name: Check JS scripts syntax
         run: |
-          bash -n scripts/install.sh
-          bash -n scripts/uninstall.sh
+          node --check scripts/install.js
+          node --check scripts/uninstall.js
+          node --check scripts/validate.js
+      - name: Smoke test — install --list
+        run: node scripts/install.js --list

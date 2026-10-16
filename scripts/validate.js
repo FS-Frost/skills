@@ -179,7 +179,7 @@ function main() {
     errors.push(
       "AGENTS.md does not exist — run `node scripts/validate.js --fix-agents`"
     );
-  } else if (fs.readFileSync(AGENTS_MD, "utf8") !== expected) {
+  } else if (fs.readFileSync(AGENTS_MD, "utf8").replace(/\r\n/g, "\n") !== expected) {
     errors.push(
       "AGENTS.md is stale — run `node scripts/validate.js --fix-agents`"
     );

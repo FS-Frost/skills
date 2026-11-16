@@ -5,8 +5,8 @@
     {
       "name": "skills",
       "source": "./",
-      "description": "Personal collection of agent skills: pedanteria (pre-implementation interrogation)",
-      "version": "0.1.0"
+      "description": "Personal collection of agent skills: pedanteria (pre-implementation interrogation), wsl (WSL2 disk compaction and sparse setup)",
+      "version": "0.2.0"
     }
   ]
 }

@@ -16,7 +16,9 @@ skills/
 ├── skills/
 │   ├── pedanteria/
 │   │   └── SKILL.md
-│   └── pedantry/
+│   ├── pedantry/
+│   │   └── SKILL.md
+│   └── wsl/
 │       └── SKILL.md
 ├── configs/
 │   └── CLAUDE.md              # personal global CLAUDE.md (installable as `claude-md`)

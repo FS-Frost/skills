@@ -1,137 +1,221 @@
 ---
 name: wsl
-description: Diagnóstico y mantenimiento de discos de WSL2 en Windows. Recupera espacio de C: compactando el ext4.vhdx de cualquier distro, lo respalda y lo configura como sparse para que no vuelva a crecer. Úsalo cuando el usuario diga que WSL o Docker ocupa demasiado espacio, que C: está lleno después de borrar archivos en Linux, que el .vhdx no se achica, cuando quiera compactar o respaldar una distro, activar sparseVhd o --set-sparse, o cuando wsl dé Wsl/Service/WSAETIMEDOUT. Triggers: "ext4.vhdx", "compactar wsl", "liberar espacio wsl", "sparse", "Optimize-VHD", "diskpart compact vdisk", "wsl --shutdown", "/wsl".
-argument-hint: "[distro] [objetivo: diagnosticar | compactar | sparse | respaldar]"
+description: Diagnoses and maintains WSL2 virtual disks on Windows. Reclaims C: space by cleaning up inside Linux and Docker, compacting any distro's ext4.vhdx or Docker's docker_data.vhdx, backing it up, setting it sparse so it stops growing, or moving it to another drive. Use it when the user says WSL or Docker takes too much space, C: is full after deleting files in Linux, the .vhdx won't shrink, or they want to compact, back up or move a distro, enable sparseVhd or --set-sparse, or when wsl fails with Wsl/Service/WSAETIMEDOUT. Triggers: "ext4.vhdx", "docker_data.vhdx", "compact wsl", "free up wsl space", "sparse", "Optimize-VHD", "diskpart compact vdisk", "wsl --manage --move", "wsl --shutdown", "/wsl".
+argument-hint: "[distro] [goal: diagnose | clean | compact | sparse | backup | move]"
 ---
 
-# Skill: WSL — discos virtuales
+# Skill: WSL — virtual disks
 
-Objetivo: que Windows recupere el espacio que Linux ya liberó dentro de una distro WSL2, sin perder datos, y que el disco no vuelva a inflarse.
+Goal: get Windows to reclaim the space Linux has already freed inside a WSL2 distro (or Docker's data disk), without losing data, and keep the disk from bloating again.
 
-Idioma: el del usuario.
+Language: reply in the user's language.
 
-## Por qué pasa
+## Why it happens
 
-Cada distro WSL2 vive en un `ext4.vhdx` dinámico. El archivo **crece** cuando Linux escribe, pero **no se achica** cuando Linux borra. Borrar 100 GB dentro de la distro no devuelve nada a C: hasta que se compacta el `.vhdx` o se activa sparse.
+Every WSL2 distro lives in a dynamic `ext4.vhdx`. Docker Desktop keeps its images, containers and volumes in a separate `docker_data.vhdx`. These files **grow** when Linux writes, but **do not shrink** when Linux deletes. Deleting 100 GB inside the distro gives nothing back to C: until the `.vhdx` is compacted or set sparse.
 
-## Reglas
+## Rules
 
-- **Leer y diagnosticar es libre.** Ejemplos: `wsl --version`, `wsl -l -v`, `wsl --help`, leer el registro, `Get-Item` para ver tamaños, `fsutil sparse queryflag`, `df -h` dentro de la distro.
-- **Antes de cada acción que cambie algo, dile al usuario en una línea qué haces y por qué, y espera su OK.** Un OK vale solo para esa acción. Esto incluye `fstrim`, editar `.wslconfig`, `wsl --shutdown`, compactar, copiar el respaldo, `--set-sparse` y arrancar la distro con el disco ya modificado.
-- **Nunca** uses `wsl --unregister`, ni borres un `.vhdx`, ni pases `--allow-unsafe` sin preguntar explícitamente y explicar el riesgo. `--unregister` borra todo el contenido de la distro.
-- **No inventes flags.** Verifica cada comando con `wsl --help` en la máquina real. El comportamiento de sparse, de export y de import cambió entre versiones de WSL.
-- Compactar, copiar el disco y `--set-sparse` requieren **PowerShell como Administrador**. Si la terminal no lo es, avisa y detente.
+- **Reading and diagnosing is free.** Examples: `wsl --version`, `wsl -l -v`, `wsl --help`, reading the registry, `Get-Item` for sizes, `fsutil sparse queryflag`, `df -h` and `du` inside the distro, `docker system df`.
+- **Before every action that changes something, tell the user in one line what you will do and why, and wait for their OK.** One OK covers only that action. This includes deleting files inside Linux, `docker ... prune`, `fstrim`, editing `.wslconfig`, `wsl --shutdown`, compacting, copying the backup, `--set-sparse`, `--move`, and starting the distro once its disk has been modified.
+- **Never** use `wsl --unregister`, delete a `.vhdx`, or pass `--allow-unsafe` without asking explicitly and explaining the risk. `--unregister` erases the whole distro.
+- **Don't invent flags.** Check every command against `wsl --help` on the actual machine. Sparse, export, import and `--move` have changed between WSL versions, and older versions lack some of them.
+- Compacting, copying the disk, `--set-sparse` and `--move` require **PowerShell as Administrator**. If the terminal isn't elevated, say so and stop.
 
-## Particularidades de la salida de `wsl.exe`
+## Quirks of `wsl.exe` output
 
-- `wsl -l -v` y `wsl --help` imprimen UTF-16. En PowerShell aparecen con espacios entre letras. Para buscar texto en esa salida, límpiala así: `(wsl --help) -join "`n" -replace "`0",""`.
-- `wsl --help` termina con código de salida distinto de 0. Eso no es un error.
-- El idioma de la salida depende de Windows. No busques cadenas literales en inglés.
+- `wsl -l -v` and `wsl --help` print UTF-16. In PowerShell it shows up with spaces between letters. To search that output, clean it first: `(wsl --help) -join "`n" -replace "`0",""`.
+- `wsl --help` exits with a non-zero code. That is not an error.
+- The output language follows Windows. Don't search for literal English strings.
 
-## 1. Diagnóstico (solo lectura)
+## Pick the path by goal
+
+| Goal | Steps |
+|---|---|
+| `diagnose` | Section 1 only. Report and propose a plan. |
+| `clean` | Section 1 → step 0 (and 0b if Docker). |
+| `compact` | Full flow, steps 0–7, skipping 6 if the user doesn't want sparse. |
+| `sparse` | Section 1 → steps 3, 5, 6, 7. Back up first. |
+| `backup` | Section 1 → step 3 → step 5. |
+| `move` | Section 1 → step 3 → step 5 → section 3. |
+| none given | Section 1, then recommend a path based on what you found. |
+
+## 1. Diagnosis (read-only)
 
 ```powershell
 ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 wsl --version
 wsl -l -v
 Get-Content "$env:USERPROFILE\.wslconfig"
-Get-PSDrive C
-Get-Command Optimize-VHD -ErrorAction SilentlyContinue   # disponible si el módulo Hyper-V está instalado
+Get-PSDrive -PSProvider FileSystem              # free space on C: and on any other drive usable for backup or move
+Get-Command Optimize-VHD -ErrorAction SilentlyContinue   # present only if the Hyper-V module is installed
 ```
 
-Ubica el disco de cada distro en el registro:
+Find every disk, distros and Docker:
 
 ```powershell
-Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' | ForEach-Object {
+$disks = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' | ForEach-Object {
   $p = Get-ItemProperty $_.PSPath
   if ($p.DistributionName) {
     $vhd = (Join-Path $p.BasePath 'ext4.vhdx') -replace '^\\\\\?\\',''
-    [pscustomobject]@{ Distro=$p.DistributionName; VHD=$vhd; GB=[math]::Round((Get-Item -LiteralPath $vhd).Length/1GB,1) }
+    if (Test-Path -LiteralPath $vhd) { [pscustomobject]@{ Name=$p.DistributionName; VHD=$vhd } }
   }
 }
+$disks += Get-ChildItem "$env:LOCALAPPDATA\Docker\wsl" -Recurse -Filter *.vhdx -ErrorAction SilentlyContinue |
+  ForEach-Object { [pscustomobject]@{ Name="Docker ($($_.Name))"; VHD=$_.FullName } }
+$disks | Select-Object Name, VHD, @{n='GB';e={[math]::Round((Get-Item -LiteralPath $_.VHD).Length/1GB,1)}} | Sort-Object GB -Descending
 ```
 
-- Algunas distros, como `docker-desktop`, registran su `BasePath` con el prefijo `\\?\`. `Test-Path` y `Get-Item` sin `-LiteralPath` fallan con ese prefijo, por eso el script lo quita.
-- Las distros de la Microsoft Store guardan su disco en `%LOCALAPPDATA%\Packages\<Paquete>\LocalState\ext4.vhdx`. Las importadas lo guardan donde se indicó al importarlas.
-- Compara el tamaño del `.vhdx` con el uso real que reporta `wsl -d <Distro> -- df -h /`. La diferencia es lo que se puede recuperar.
-- Si hay varias distros parecidas (por ejemplo `Ubuntu` y `Ubuntu-24.04`), son **instalaciones independientes**, cada una con su propio disco. Identifica la que se usa con:
-  - el `*` de `wsl -l -v`, que marca la distro por defecto;
-  - `/etc/os-release` y `whoami` dentro de cada una;
-  - el `LastWriteTime` de cada `.vhdx`.
+- Some distros, such as `docker-desktop`, register their `BasePath` with the `\\?\` prefix. `Test-Path` and `Get-Item` without `-LiteralPath` fail on it, which is why the script strips it.
+- **Docker's data disk is not a registered distro.** Recent Docker Desktop versions keep it at `%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx`; older ones at `%LOCALAPPDATA%\Docker\wsl\data\ext4.vhdx`. A custom location can be set in Docker Desktop → Settings → Resources → Advanced. It is often the biggest disk on the machine.
+- Microsoft Store distros keep their disk at `%LOCALAPPDATA%\Packages\<Package>\LocalState\ext4.vhdx`. Imported ones keep it wherever it was imported to.
+- Compare each `.vhdx` size with the real usage from `wsl -d <Distro> -- df -h /` (or `docker system df` for Docker). The gap is what compaction can recover.
+- Find what takes space inside Linux: `wsl -d <Distro> -- sh -c "du -xh --max-depth=1 / 2>/dev/null | sort -h | tail -15"`, then drill into the largest directory, usually `/home/<user>`.
+- If there are several similar distros (e.g. `Ubuntu` and `Ubuntu-24.04`), they are **independent installs**, each with its own disk. Identify the one in use with:
+  - the `*` in `wsl -l -v`, which marks the default distro;
+  - `/etc/os-release` and `whoami` inside each one;
+  - each `.vhdx`'s `LastWriteTime`.
 
-## 2. Flujo para recuperar espacio
+## 2. Reclaiming space
 
-Sigue este orden. Antes de cada paso, explica qué haces y pide el OK.
+Follow this order. Before each step, explain what you'll do and ask for the OK.
 
-1. **`fstrim` con la distro corriendo**: `wsl -d <Distro> -u root -- sh -c "sync; fstrim -av"`.
-   - Marca como libres los bloques que Linux ya no usa, para que la compactación pueda recuperarlos.
-   - Es normal que reporte cientos de GiB: recorre todo el espacio libre del sistema de archivos, no solo lo borrado hoy.
-2. **Configurar `.wslconfig`**: agrega `sparseVhd=true` en la sección `[experimental]`, sin tocar lo demás.
-   - Solo afecta a los discos que se creen después. Los existentes no cambian.
-3. **Apagar WSL**:
-   - Pide al usuario cerrar Docker Desktop desde el ícono de la bandeja → *Quit*. Cerrar la ventana no basta.
-   - Confirma que no queden procesos: `Get-Process | ? Name -like '*docker*'`.
-   - Corre `wsl --shutdown` y verifica con `wsl -l -v` que todas las distros digan `Stopped`.
-4. **Compactar** con WSL apagado:
-   - Si existe `Optimize-VHD`, usa `Optimize-VHD -Path <vhdx> -Mode Full`.
-   - Si no existe, usa un script de diskpart: `select vdisk file="<vhdx>"`, `attach vdisk readonly`, `compact vdisk`, `detach vdisk`.
-   - Lánzalo en segundo plano y anota el tamaño antes y después.
-5. **Respaldar** el disco ya compactado, antes de activar sparse:
-   - Copia el archivo con `Copy-Item -LiteralPath <vhdx> <destino>` y compara que ambos tengan los mismos bytes.
-   - Para restaurar: `wsl --shutdown` y reemplazar el original por la copia.
-   - Otra opción, si `wsl --help` la lista: `wsl --export <Distro> <archivo> --format vhd`, que se restaura con `wsl --import ... --vhd`.
-   - Respaldar **después** de compactar es lo que suele hacer que el respaldo quepa.
-6. **Activar sparse**: `wsl --manage <Distro> --set-sparse true`.
-   - Verifica con `fsutil sparse queryflag <vhdx>`.
-   - Si WSL lo rechaza y pide `--allow-unsafe`, **detente**. Explica el riesgo y ofrece la alternativa: no usar sparse y compactar a mano cuando haga falta.
-7. **Verificar**:
-   - Arranca la distro y corre `df -h /`, `whoami` y `ls ~` para confirmar que inicia y que los datos están.
-   - Revisa el espacio libre de C:.
-   - Recuérdale al usuario que ya puede volver a abrir Docker.
+0. **Free space inside Linux.** Compacting without deleting anything first recovers almost nothing. Usual suspects:
+   - `~/.cache` (pip, npm, yarn, browsers), stray `node_modules`, old build output and virtualenvs;
+   - `sudo apt-get clean` (or the distro's package manager equivalent);
+   - `sudo journalctl --vacuum-size=200M`.
 
-## Riesgos y reversibilidad
+   Show the user what you found with sizes and let them choose. Never delete anything under `/home` without their explicit choice of each item.
 
-| Paso | Riesgo | ¿Reversible? |
+   0b. **Clean up Docker** if its disk is large. Show `docker system df` first, then propose one at a time:
+   - `docker builder prune` — build cache, usually the biggest win and the safest;
+   - `docker image prune -a` — every image not used by a container; they'll be pulled or rebuilt again;
+   - `docker container prune` — stopped containers;
+   - `docker volume prune` — **can delete databases and other persistent data.** Only propose it after listing the volumes with `docker volume ls` and the user confirms they're disposable.
+
+1. **`fstrim` with the distro running**: `wsl -d <Distro> -u root -- sh -c "sync; fstrim -av"`.
+   - Marks blocks Linux no longer uses as free, so compaction can reclaim them.
+   - It's normal for it to report hundreds of GiB: it walks all the free space in the filesystem, not just what was deleted today.
+   - For `docker_data.vhdx`, there is no user distro to run it from. Compaction still works, but may recover less.
+2. **Configure `.wslconfig`**: add `sparseVhd=true` under `[experimental]`, leaving everything else untouched.
+   - It only affects disks created afterwards. Existing ones don't change.
+3. **Shut down WSL**:
+   - Ask the user to quit Docker Desktop from the tray icon → *Quit*. Closing the window isn't enough.
+   - Confirm no processes remain: `Get-Process | ? Name -like '*docker*'`.
+   - Run `wsl --shutdown` and check with `wsl -l -v` that every distro says `Stopped`.
+4. **Compact** with WSL shut down:
+   - If `Optimize-VHD` exists: `Optimize-VHD -Path <vhdx> -Mode Full`.
+   - Otherwise (e.g. Windows Home), write a diskpart script and run it:
+
+     ```powershell
+     $script = "$env:TEMP\compact-wsl.txt"
+     @(
+       'select vdisk file="<vhdx>"'
+       'attach vdisk readonly'
+       'compact vdisk'
+       'detach vdisk'
+       'exit'
+     ) | Set-Content -Encoding ascii $script
+     diskpart /s $script
+     ```
+
+   - Record the size before and after.
+5. **Back up** the already-compacted disk, before enabling sparse or moving:
+   - Check first that the destination has at least the `.vhdx` size free (`Get-PSDrive`). If C: doesn't, propose another drive. Backing up **after** compacting is usually what makes it fit.
+   - Copy with `Copy-Item -LiteralPath <vhdx> <destination>`, then check that both `Length` values match. A hash (`Get-FileHash`) takes about as long as the copy: offer it, don't run it by default.
+   - To restore: `wsl --shutdown` and replace the original with the copy.
+   - Alternative, if `wsl --help` lists it: `wsl --export <Distro> <file> --format vhd`, restored with `wsl --import ... --vhd`.
+6. **Enable sparse**: `wsl --manage <Distro> --set-sparse true`.
+   - Verify with `fsutil sparse queryflag <vhdx>`.
+   - If WSL refuses and asks for `--allow-unsafe`, **stop**. Explain the risk and offer the alternative: skip sparse and compact by hand when needed.
+   - Doesn't apply to `docker_data.vhdx`: it isn't a registered distro.
+7. **Verify**:
+   - Start the distro and run `df -h /`, `whoami` and `ls ~` to confirm it boots and the data is there. For Docker: open Docker Desktop and run `docker images`.
+   - Check C:'s free space.
+   - Remind the user they can reopen Docker.
+
+## 3. Moving a disk to another drive
+
+When C: is short on space and another drive has room, moving often beats compacting. Do it after compacting (smaller copy) and with a backup in place.
+
+- **Distro**: `wsl --manage <Distro> --move <new folder>`, only if `wsl --help` lists `--move`. Without it, the fallback is `wsl --export` + `wsl --unregister` + `wsl --import`, which goes through `--unregister`: explain the risk, confirm the export is complete, and get an explicit OK for that step alone.
+- **Docker**: Docker Desktop → Settings → Resources → Advanced → *Disk image location*. Docker moves the disk itself. Don't move `docker_data.vhdx` by hand.
+- Afterwards, verify as in step 7 and rerun the diagnosis script to confirm the new path.
+
+## Long-running operations
+
+Compacting, copying and moving take tens of minutes and show no progress.
+
+- Run them in the background with a completion marker, so you get notified instead of polling:
+
+  ```powershell
+  Optimize-VHD -Path <vhdx> -Mode Full *> "$env:TEMP\wsl-op.log"; "DONE ok=$? $(Get-Date)" | Add-Content "$env:TEMP\wsl-op.log"
+  ```
+
+  Use your harness's background execution if it has one. If it doesn't, give the user the command to run in their own admin window and ask them to tell you when it's done.
+- Tell the user it has no progress bar and don't make up percentages or time estimates.
+
+## Risks and reversibility
+
+| Step | Risk | Reversible? |
 |---|---|---|
-| `fstrim` | Muy bajo. Solo toca bloques vacíos. | No hay nada que deshacer: los datos no cambian. |
-| `sparseVhd=true` en `.wslconfig` | Ninguno sobre datos existentes. | Sí, borrando la línea. |
-| `wsl --shutdown` | Se pierde lo que no esté guardado en WSL y en Docker. | Sí, todo vuelve a arrancar. |
-| Compactar | Bajo. Si se corta la luz o se interrumpe a mitad, el disco puede corromperse. | No se deshace, pero el contenido no cambia. |
-| `--set-sparse true` | **El único con riesgo real.** Es experimental y hubo reportes de corrupción. Algunas versiones exigen `--allow-unsafe`. | Sí, con `--set-sparse false`. Un daño ya ocurrido no se revierte. |
+| Deleting inside Linux | Losing files the user still needed. | No. That's why each item needs their choice. |
+| `docker ... prune` | Images and cache come back on rebuild. `volume prune` can destroy data. | Images/cache: yes, rebuilding. Volumes: no. |
+| `fstrim` | Very low. Only touches empty blocks. | Nothing to undo: data doesn't change. |
+| `sparseVhd=true` in `.wslconfig` | None on existing data. | Yes, by removing the line. |
+| `wsl --shutdown` | Anything unsaved in WSL and Docker is lost. | Yes, everything starts again. |
+| Compacting | Low. A power cut or interruption midway can corrupt the disk. | Can't be undone, but content doesn't change. |
+| `--set-sparse true` | **The one with real risk.** Experimental; there have been corruption reports. Some versions require `--allow-unsafe`. | Yes, with `--set-sparse false`. Damage already done isn't reverted. |
+| `--move` | Interruption midway. | Yes, moving back. Keep the backup until verified. |
 
-El mayor riesgo general es no tener respaldo. Si el disco no cabe para exportarlo antes de compactar, respáldalo después de compactar y antes de `--set-sparse`.
+The biggest overall risk is having no backup. If the disk doesn't fit for export before compacting, back it up after compacting and before `--set-sparse` or `--move`.
 
-## Lo que hay que esperar (observado en la práctica)
+## What to expect (observed in practice)
 
-- **Duración**: compactar un `.vhdx` de ~240 GB tardó ~70 minutos, y copiar un `.vhdx` de ~129 GB al mismo disco, ~66 minutos. Ninguno de los dos muestra porcentaje de avance. Avísale al usuario y no inventes estimaciones.
-- **No se llega al uso real**: tras compactar, el `.vhdx` quedó en ~129 GB con 92 GB usados en Linux. El `.vhdx` se libera en bloques grandes, y uno con aunque sea pocos datos no se puede liberar. Después de un borrado masivo, la fragmentación deja esa diferencia. Sparse con `fstrim` posterior puede recuperar parte de ella.
-- **Espacio temporal**: mientras `Optimize-VHD` corre, el espacio libre de C: puede bajar varios GB. Lo devuelve al terminar.
-- **`Copy-Item` reserva el archivo completo al empezar**: el tamaño del destino no indica avance. Para saber cuánto lleva, usa el `CreationTime` del archivo de destino.
-- **El espacio libre de C: puede subir tras `wsl --shutdown`**: se liberan la swap y la memoria de la máquina virtual.
-- **En un disco sparse, `Length` no es lo que ocupa**: mide el espacio libre de C: o el "Tamaño en disco" en Propiedades.
+- **Duration**: compacting a ~240 GB `.vhdx` took ~70 minutes, and copying a ~129 GB `.vhdx` to the same drive, ~66 minutes.
+- **You won't get down to real usage**: after compacting, the `.vhdx` stayed at ~129 GB with 92 GB used in Linux. The `.vhdx` is freed in large blocks, and a block with even a little data can't be released. After a mass deletion, fragmentation leaves that gap. Sparse plus a later `fstrim` can recover part of it.
+- **Temporary space**: while `Optimize-VHD` runs, C:'s free space can drop by several GB. It comes back when it finishes.
+- **`Copy-Item` reserves the whole file up front**: the destination size doesn't show progress. To know how long it's been running, use the destination file's `CreationTime`.
+- **C:'s free space can rise after `wsl --shutdown`**: the VM's swap and memory are released.
+- **On a sparse disk, `Length` isn't what it occupies**: measure C:'s free space or "Size on disk" in Properties.
 
-## Mantenimiento
+## Final report
 
-- Con el disco sparse: después de borrar mucho dentro de Linux, corre `sudo fstrim -av`. Libera el espacio en Windows sin apagar nada.
-- Sin sparse: repite `fstrim`, `wsl --shutdown` y la compactación cuando el `.vhdx` vuelva a crecer mucho.
-- Cuando el disco sparse lleve unos días funcionando bien, el respaldo se puede borrar. Hazlo solo con el OK del usuario.
-- `docker-desktop` suele pesar poco. Los datos de Docker viven en otro disco: revisa su tamaño antes de proponer compactarlo.
+End with this, filled with real values only:
 
-## Si `wsl` da `Wsl/Service/WSAETIMEDOUT`
+- Disks touched: path, size before → after.
+- C: free space before → after.
+- Backup: where it is, its size, and when it's safe to delete it.
+- How to revert each change made (sparse, `.wslconfig`, move).
+- Recommended maintenance for this setup (next section).
 
-Suele pasar tras escaneos o borrados masivos que fragmentan la RAM del kernel de WSL. Si todavía hay una shell abierta dentro de la distro, corre como root:
+## Maintenance
+
+- With a sparse disk: after deleting a lot inside Linux, run `sudo fstrim -av`. It frees the space in Windows without shutting anything down.
+- Without sparse: repeat `fstrim`, `wsl --shutdown` and compaction when the `.vhdx` grows a lot again.
+- For Docker: `docker builder prune` from time to time, then compact `docker_data.vhdx` if it doesn't shrink.
+- Once the sparse or moved disk has been working fine for a few days, the backup can be deleted. Only with the user's OK.
+
+## If `wsl` fails with `Wsl/Service/WSAETIMEDOUT`
+
+It tends to happen after mass scans or deletions that fragment the WSL kernel's RAM. If a shell inside the distro is still open, run as root:
 
 ```sh
 sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory
 ```
 
-Si no hay acceso, `wsl --shutdown` desde Windows. Cuenta como acción que cambia algo: pide el OK.
+If there's no access, `wsl --shutdown` from Windows. It counts as an action that changes something: ask for the OK.
 
-## Antipatrones
+To prevent it, propose `autoMemoryReclaim=gradual` in `.wslconfig` (under `[experimental]` in the versions that introduced it). Check the current WSL documentation for the installed version before writing it: the setting's section and values have changed.
 
-- Compactar con la distro o Docker corriendo.
-- Encadenar varias acciones con un solo OK.
-- Forzar `--allow-unsafe` o `--unregister` para "terminar rápido".
-- Usar flags sacados de memoria sin verificarlos con `wsl --help`.
-- Hacer polling o inventar porcentajes durante operaciones largas.
-- Prometer que el `.vhdx` quedará igual al uso que reporta `df`.
+## Anti-patterns
+
+- Compacting before freeing anything inside Linux or Docker.
+- Compacting with the distro or Docker running.
+- Chaining several actions under a single OK.
+- `docker volume prune` or deleting under `/home` without the user picking each item.
+- Forcing `--allow-unsafe` or `--unregister` to "finish faster".
+- Using flags from memory without checking them against `wsl --help`.
+- Polling or making up percentages during long operations.
+- Promising the `.vhdx` will end up equal to the usage `df` reports.
+- Moving `docker_data.vhdx` by hand instead of through Docker Desktop.
